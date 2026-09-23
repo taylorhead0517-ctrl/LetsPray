@@ -187,6 +187,53 @@ function ordinal(n) {
   return num + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+const GRADE_OPTIONS = [
+  { value: "toddler", label: "Toddler" },
+  { value: "preschool", label: "Preschool" },
+  { value: "kindergarten", label: "Kindergarten" },
+  { value: "1", label: "1st Grade" },
+  { value: "2", label: "2nd Grade" },
+  { value: "3", label: "3rd Grade" },
+  { value: "4", label: "4th Grade" },
+  { value: "5", label: "5th Grade" },
+  { value: "6", label: "6th Grade" },
+  { value: "7", label: "7th Grade" },
+  { value: "8", label: "8th Grade" },
+  { value: "9", label: "9th Grade" },
+  { value: "10", label: "10th Grade" },
+  { value: "11", label: "11th Grade" },
+  { value: "12", label: "12th Grade" },
+  { value: "college", label: "College" },
+];
+
+function gradeLabel(grade, short = false) {
+  if (grade === null || grade === undefined || grade === "") return "";
+
+  const value = String(grade);
+  const special = GRADE_OPTIONS.find(g => g.value === value);
+
+  if (["toddler", "preschool", "kindergarten", "college"].includes(value)) {
+    return special?.label || value;
+  }
+
+  const n = Number(value);
+  return short ? `${ordinal(n)} Gr` : `${ordinal(n)} Grade`;
+}
+
+function gradeSortValue(grade) {
+  const index = GRADE_OPTIONS.findIndex(g => g.value === String(grade));
+  return index === -1 ? 999 : index;
+}
+
+function groupForGrade(grade) {
+  const n = Number(grade);
+
+  if (Number.isFinite(n) && n >= 9 && n <= 12) return "hs";
+  if (Number.isFinite(n) && n >= 5 && n <= 8) return "ms";
+
+  return null;
+}
+
 // Resolves a MM-DD birthday to a real Date in the given year.
 // Feb 29 on a non-leap year falls back to Feb 28.
 function birthdayInYear(month, day, year) {
@@ -954,7 +1001,20 @@ function AppMain({ settings }) {
 
   function addPerson() {
     if (!addName.trim()) return;
-    setPeople(prev => [...prev, { id: genId(), name: addName.trim(), type: addType, group: addType === "student" ? addGroup : null, grade: addType === "student" && addGrade ? Number(addGrade) : null, active: true, prayedAt: null, prayerRequests: [], birthday: addBday.trim() || "", updatedAt: Date.now() }]);
+setPeople(prev => [...prev, {
+  id: genId(),
+  name: addName.trim(),
+  type: addType,
+  group: addType === "student"
+    ? (addGrade ? groupForGrade(addGrade) : (addGroup || null))
+    : null,
+  grade: addType === "student" && addGrade ? addGrade : null,
+  active: true,
+  prayedAt: null,
+  prayerRequests: [],
+  birthday: addBday.trim() || "",
+  updatedAt: Date.now()
+}]);
     setAddBday("");
     setAddName("");
     setAddGrade("");
@@ -1025,15 +1085,31 @@ function AppMain({ settings }) {
   }
 
   function promoteGrades() {
-    setPeople(prev => prev.map(p => {
-      if (p.type !== "student" || !p.grade) return p;
-      if (Number(p.grade) >= 12) return { ...p, active: false };
-      const newGrade = Number(p.grade) + 1;
-      const newGroup = Number(p.grade) === 8 ? "hs" : p.group;
-      return { ...p, grade: newGrade, group: newGroup };
-    }));
-    setConfirmPromo(false);
-  }
+  setPeople(prev => prev.map(p => {
+    if (p.type !== "student" || !p.grade) return p;
+
+    const currentGrade = String(p.grade);
+    const currentIndex = GRADE_OPTIONS.findIndex(
+      g => g.value === currentGrade
+    );
+
+    if (currentIndex === -1) return p;
+
+    // College stays College
+    if (currentIndex === GRADE_OPTIONS.length - 1) return p;
+
+    const newGrade = GRADE_OPTIONS[currentIndex + 1].value;
+
+    return {
+      ...p,
+      grade: newGrade,
+      group: groupForGrade(newGrade),
+      updatedAt: Date.now()
+    };
+  }));
+
+  setConfirmPromo(false);
+}
 
   function addRequest(personId) {
     if (!reqText.trim()) return;
@@ -1284,7 +1360,7 @@ function AppMain({ settings }) {
                         )}
                         {current?.type === "student" && current?.grade && (
                           <div style={{ ...S.badge, ...S.gradeBadgeLg }}>
-                            {ordinal(current.grade)} Gr
+                            {gradelabel(current.grade, true)}
                           </div>
                         )}
                       </div>
@@ -1499,14 +1575,31 @@ function AppMain({ settings }) {
                 <option value="leader">Leader</option>
               </select>
               <select value={addGroup} onChange={e => setAddGroup(e.target.value)} style={{ ...S.addTypeSelect, flex:1 }}>
+                <option value="">-</option>
                 <option value="hs">HS</option>
                 <option value="ms">MS</option>
               </select>
               {addType === "student" && (
-                <select value={addGrade} onChange={e => { const g = e.target.value; setAddGrade(g); if (g) setAddGroup(Number(g) >= 9 ? "hs" : "ms"); }} style={{ ...S.addTypeSelect, flex:1 }}>
-                  <option value="">Grade</option>
-                  {[5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
+                <select
+  value={addGrade}
+  onChange={e => {
+    const g = e.target.value;
+    setAddGrade(g);
+
+    if (g) {
+      setAddGroup(groupForGrade(g) || "");
+    }
+  }}
+  style={{ ...S.addTypeSelect, flex:1 }}
+>
+  <option value="">Grade</option>
+
+  {GRADE_OPTIONS.map(g => (
+    <option key={g.value} value={g.value}>
+      {g.label}
+    </option>
+  ))}
+</select>
               )}
             </div>
             <div style={{ display:"flex", gap:8 }}>
@@ -1548,8 +1641,8 @@ function AppMain({ settings }) {
               if (peopleSort === "grade") {
                 if (a.type === "leader" && b.type !== "leader") return 1;
                 if (a.type !== "leader" && b.type === "leader") return -1;
-                const ga = Number(a.grade) || 99;
-                const gb = Number(b.grade) || 99;
+                const ga = gradeSortValue(a.grade);
+                const gb = gradeSortValue(b.grade);
                 return ga !== gb ? ga - gb : a.name.localeCompare(b.name);
               }
               if (peopleSort === "birthday") {
@@ -1583,7 +1676,7 @@ function AppMain({ settings }) {
                     <div style={S.personMeta}>
                       <span style={{ ...S.badgeSm, ...(p.type === "leader" ? S.leaderBadgeSm : S.studentBadgeSm) }}>{p.type}</span>
                       {p.group && <span style={{ ...S.badgeSm, ...(p.group === "hs" ? S.hsBadgeSm : S.msBadgeSm) }}>{p.group.toUpperCase()}</span>}
-                      {p.type === "student" && p.grade && <span style={S.gradeBadge}>{ordinal(p.grade)} Gr</span>}
+                      {p.type === "student" && p.grade && <span style={S.gradeBadge}>{gradelabel(p.grade, true)} </span>}
                       {withinWeek(p.prayedAt) && <span style={S.prayedSmall}>✓ prayed</span>}
                       {(p.prayerRequests || []).length > 0 && <span style={S.reqCountBadge}>{p.prayerRequests.length} req</span>}
                       {p.birthday && <span style={S.bdayBadgeSm}><Cake size={9} style={{ marginRight: 3 }} />{formatBirthday(p.birthday)}</span>}
@@ -1612,11 +1705,32 @@ function AppMain({ settings }) {
                 {p.type === "student" && (
                   <div style={S.gradeRow}>
                     <span style={S.gradeLabel}>Grade</span>
-                    <select value={p.grade || ""} onChange={e => setPeople(prev => prev.map(q => q.id === p.id ? { ...q, grade: e.target.value ? Number(e.target.value) : null, updatedAt: Date.now() } : q))}
-                      style={S.gradeSelect}>
-                      <option value="">—</option>
-                      {[5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>{`Grade ${g}`}</option>)}
-                    </select>
+                    <select
+  value={p.grade == null ? "" : String(p.grade)}
+  onChange={e => {
+    const newGrade = e.target.value || null;
+
+    setPeople(prev => prev.map(q =>
+      q.id === p.id
+        ? {
+            ...q,
+            grade: newGrade,
+            group: newGrade ? groupForGrade(newGrade) : q.group,
+            updatedAt: Date.now()
+          }
+        : q
+    ));
+  }}
+  style={S.gradeSelect}
+>
+  <option value="">—</option>
+
+  {GRADE_OPTIONS.map(g => (
+    <option key={g.value} value={g.value}>
+      {g.label}
+    </option>
+  ))}
+</select>
                   </div>
                 )}
               </div>
@@ -1631,7 +1745,7 @@ function AppMain({ settings }) {
               </button>
             ) : (
               <div style={S.promoteConfirm}>
-                <p style={S.promoteConfirmText}>Move every student up one grade? 12th graders will be made inactive.</p>
+                <p style={S.promoteConfirmText}>Move every student up one grade or age level? College students will remain in College.</p>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={promoteGrades} style={S.confirmBtn}>Yes, Promote</button>
                   <button onClick={() => setConfirmPromo(false)} style={S.cancelBtn}>Cancel</button>
@@ -1730,7 +1844,7 @@ function AppMain({ settings }) {
                       <span style={{ fontSize:15, color:C.cream, fontFamily:"'Lora', Georgia, serif" }}>{p.name}</span>
                       <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                         {p.type === "student" && p.grade && (
-                          <span style={{ fontSize:13, color:C.muted, fontWeight:600 }}>{ordinal(p.grade)} Grade</span>
+                          <span style={{ fontSize:13, color:C.muted, fontWeight:600 }}>{gradelabel(p.grade)} </span>
                         )}
                         {p.type === "leader" && p.group && (
                           <span style={{ fontSize:13, color:C.muted, fontWeight:600 }}>{p.group.toUpperCase()}</span>
